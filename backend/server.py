@@ -1,4 +1,5 @@
 from fastapi import FastAPI, UploadFile, File, HTTPException, Form
+from typing import List
 import sqlite3
 import json
 import pandas as pd
@@ -30,16 +31,23 @@ async def create_strategy(file: UploadFile = File(...)):
         raise HTTPException(400, "Python file required")
     
     strategy_name = file.filename[:-3]
+    original_filename = file.filename
     file_path = os.path.join(STRATEGIES_DIR, file.filename)
     
-    if os.path.exists(file_path):
-        raise HTTPException(400, "Strategy already exists")
+    # If strategy already exists, add a prefix to make it unique
+    counter = 1
+    while os.path.exists(file_path):
+        prefix = f"copy_{counter}_"
+        new_filename = f"{prefix}{original_filename}"
+        strategy_name = f"{prefix}{strategy_name}"
+        file_path = os.path.join(STRATEGIES_DIR, new_filename)
+        counter += 1
     
     contents = await file.read()
     with open(file_path, "wb") as f:
         f.write(contents)
     
-    return {"message": "Strategy created successfully"}
+    return {"message": f"Strategy created successfully as '{strategy_name}'"}
 
 @app.get("/getStrategies")
 def get_strategies():
@@ -55,71 +63,100 @@ def delete_strategy(strategy_name: str):
     return {"message": "Strategy deleted successfully"}
 
 @app.post("/create")
-async def create(name: str = Form(...), amount: float = Form(...), strategy_name: str = Form(...), file: UploadFile = File(...)):
-    if not file.filename.endswith('.csv'):
-        raise HTTPException(400, "CSV file required")
+async def create(
+    name: str = Form(...),
+    amount: float = Form(...),
+    strategy_name: str = Form(...),
+    files: List[UploadFile] = File(...)
+):
+    if len(files) < 1:
+        raise HTTPException(400, "At least one CSV file is required")
     
-    contents = await file.read()
-    print(f"File size: {len(contents)} bytes")
-    print(f"First 200 characters: {contents[:200]}")
-    
-    df = None
-    try:
-        # First try as comma-separated CSV with headers
-        print("Trying comma-separated CSV with headers...")
-        df = pd.read_csv(io.BytesIO(contents), parse_dates=['Time'])
-        if not all(col in df.columns for col in ['Time', 'Open', 'High', 'Low', 'Close', 'Volume']):
-            raise ValueError("Headers not found, trying without headers")
-        print(f"Success with headers! Shape: {df.shape}")
-    except Exception as e:
-        print(f"Failed with headers: {e}")
+    dataframes = []
+    for file in files:
+        if not file.filename.endswith('.csv'):
+            raise HTTPException(400, f"File {file.filename} must be a CSV file")
+        
+        contents = await file.read()
+        print(f"Processing file: {file.filename}")
+        print(f"File size: {len(contents)} bytes")
+        print(f"First 200 characters: {contents[:200]}")
+        
+        df = None
         try:
-            # Try as tab-separated file first (since we know it's tab-separated)
-            print("Trying tab-separated file...")
-            df = pd.read_csv(io.BytesIO(contents), header=None, names=['Time', 'Open', 'High', 'Low', 'Close', 'Volume'], sep='\t')
-            print(f"Success with tab separator! Shape: {df.shape}")
+            # First try as comma-separated CSV with headers
+            print("Trying comma-separated CSV with headers...")
+            df = pd.read_csv(io.BytesIO(contents), parse_dates=['Time'])
+            if not all(col in df.columns for col in ['Time', 'Open', 'High', 'Low', 'Close', 'Volume']):
+                raise ValueError("Headers not found, trying without headers")
+            print(f"Success with headers! Shape: {df.shape}")
         except Exception as e:
-            print(f"Failed with tab separator: {e}")
+            print(f"Failed with headers: {e}")
             try:
-                # Try as comma-separated CSV without headers
-                print("Trying comma-separated CSV without headers...")
-                df = pd.read_csv(io.BytesIO(contents), header=None, names=['Time', 'Open', 'High', 'Low', 'Close', 'Volume'])
-                print(f"Success without headers! Shape: {df.shape}")
+                # Try as tab-separated file
+                print("Trying tab-separated file...")
+                df = pd.read_csv(
+                    io.BytesIO(contents),
+                    header=None,
+                    names=['Time', 'Open', 'High', 'Low', 'Close', 'Volume'],
+                    sep='\t'
+                )
+                print(f"Success with tab separator! Shape: {df.shape}")
             except Exception as e:
-                print(f"Failed without headers: {e}")
+                print(f"Failed with tab separator: {e}")
                 try:
-                    # Try as space-separated file (like EURUSD15.csv)
-                    print("Trying space-separated file...")
-                    df = pd.read_csv(io.BytesIO(contents), header=None, names=['Time', 'Open', 'High', 'Low', 'Close', 'Volume'], sep='\s+')
-                    print(f"Success with space separator! Shape: {df.shape}")
+                    # Try as comma-separated CSV without headers
+                    print("Trying comma-separated CSV without headers...")
+                    df = pd.read_csv(
+                        io.BytesIO(contents),
+                        header=None,
+                        names=['Time', 'Open', 'High', 'Low', 'Close', 'Volume']
+                    )
+                    print(f"Success without headers! Shape: {df.shape}")
                 except Exception as e:
-                    print(f"Failed with space separator: {e}")
-                    raise HTTPException(400, f"Could not parse CSV file: {e}")
-    
-    if df is None or df.empty:
-        raise HTTPException(400, "No data found in CSV file")
-    
-    # Parse datetime manually to handle various formats
-    print(f"Sample Time values: {df['Time'].head()}")
-    df['Time'] = pd.to_datetime(df['Time'], format='%Y-%m-%d %H:%M', errors='coerce')
-    # Drop rows where datetime parsing failed
-    df = df.dropna(subset=['Time'])
-    print(f"After datetime parsing: {df.shape}")
-    if df.empty:
-        print("All rows dropped due to datetime parsing failure!")
-        print("Trying alternative datetime parsing...")
-        # Try without format specification
-        df['Time'] = pd.to_datetime(df['Time'], errors='coerce')
+                    print(f"Failed without headers: {e}")
+                    try:
+                        # Try as space-separated file
+                        print("Trying space-separated file...")
+                        df = pd.read_csv(
+                            io.BytesIO(contents),
+                            header=None,
+                            names=['Time', 'Open', 'High', 'Low', 'Close', 'Volume'],
+                            sep='\s+'
+                        )
+                        print(f"Success with space separator! Shape: {df.shape}")
+                    except Exception as e:
+                        raise HTTPException(400, f"Could not parse CSV file {file.filename}: {e}")
+        
+        if df is None or df.empty:
+            raise HTTPException(400, f"No data found in CSV file {file.filename}")
+        
+        # Parse datetime manually to handle various formats
+        print(f"Sample Time values: {df['Time'].head()}")
+        df['Time'] = pd.to_datetime(df['Time'], format='%Y-%m-%d %H:%M', errors='coerce')
+        # Drop rows where datetime parsing failed
         df = df.dropna(subset=['Time'])
-        print(f"After alternative datetime parsing: {df.shape}")
-    
-    required_cols = ['Time', 'Open', 'High', 'Low', 'Close', 'Volume']
-    if not all(col in df.columns for col in required_cols):
-        raise HTTPException(400, "CSV must contain data for: Time, Open, High, Low, Close, Volume")
+        print(f"After datetime parsing: {df.shape}")
+        
+        if df.empty:
+            print(f"All rows dropped due to datetime parsing failure for {file.filename}!")
+            print("Trying alternative datetime parsing...")
+            # Try without format specification
+            df['Time'] = pd.to_datetime(df['Time'], errors='coerce')
+            df = df.dropna(subset=['Time'])
+            print(f"After alternative datetime parsing: {df.shape}")
+        
+        required_cols = ['Time', 'Open', 'High', 'Low', 'Close', 'Volume']
+        if not all(col in df.columns for col in required_cols):
+            raise HTTPException(400, f"CSV {file.filename} must contain data for: Time, Open, High, Low, Close, Volume")
+        
+        # Set Time as index for strategy compatibility
+        df = df.set_index('Time')
+        dataframes.append(df)
     
     file_path = os.path.join(STRATEGIES_DIR, f"{strategy_name}.py")
     if not os.path.exists(file_path):
-        raise HTTPException(404, "Strategy not found")
+        raise HTTPException(404, f"Strategy {strategy_name} not found")
     
     spec = importlib.util.spec_from_file_location(strategy_name, file_path)
     module = importlib.util.module_from_spec(spec)
@@ -128,7 +165,10 @@ async def create(name: str = Form(...), amount: float = Form(...), strategy_name
     if not hasattr(module, "strategy"):
         raise HTTPException(400, "Strategy module must define 'strategy' function")
     
-    predictions, results, end_result = module.strategy(df, amount)
+    try:
+        predictions, results, end_result = module.strategy(dataframes, amount)
+    except Exception as e:
+        raise HTTPException(400, f"Strategy execution failed: {e}")
     
     conn = sqlite3.connect(DB)
     c = conn.cursor()
@@ -147,10 +187,18 @@ async def create(name: str = Form(...), amount: float = Form(...), strategy_name
 def get_all():
     conn = sqlite3.connect(DB)
     c = conn.cursor()
-    c.execute("SELECT name FROM backtests")
+    c.execute("SELECT name, end_result FROM backtests")
     rows = c.fetchall()
     conn.close()
-    backtests = [row[0] for row in rows]
+    backtests = []
+    for row in rows:
+        name = row[0]
+        end_result = json.loads(row[1]) if row[1] else {}
+        backtests.append({
+            "name": name,
+            "final_pourcent": end_result.get("final_pourcent"),
+            "initial_amount": end_result.get("initial_amount")
+        })
     return {"backtests": backtests}
 
 @app.get("/get/{name}")

@@ -1,0 +1,74 @@
+name: Build Electron App
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.12'
+        
+    - name: Cache Python dependencies
+      uses: actions/cache@v3
+      with:
+        path: |
+          backend/venv
+          ~/.cache/pip
+        key: ${{ runner.os }}-python-${{ hashFiles('backend/requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-python-
+          
+    - name: Install dependencies
+      run: npm ci
+      
+    - name: Install frontend dependencies
+      run: cd frontend && npm ci
+      
+    - name: Build frontend
+      run: npm run build:frontend
+      
+    - name: Build backend
+      run: npm run build:backend
+      
+    - name: Build Electron app
+      run: npx electron-builder --publish=never
+      
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: electron-app-${{ matrix.os }}
+        path: dist/
+        retention-days: 30
+        
+    - name: Create release
+      if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+      uses: softprops/action-gh-release@v1
+      with:
+        files: dist/*
+        draft: false
+        prerelease: false
+        generate_release_notes: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} 

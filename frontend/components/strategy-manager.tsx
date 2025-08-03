@@ -10,6 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { useToast } from "@/hooks/use-toast"
 import { Trash2, FileCode, Plus } from "lucide-react"
+import { fetchFromBackend, getBackendUrl } from "@/lib/backend-url"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -30,14 +31,13 @@ export function StrategyManager() {
   const [strategies, setStrategies] = useState<string[]>([])
   const [loading, setLoading] = useState(false)
   const [uploading, setUploading] = useState(false)
+  const [isDragOver, setIsDragOver] = useState(false)
   const { toast } = useToast()
 
   const fetchStrategies = async () => {
     try {
       setLoading(true)
-      const response = await fetch("/api/strategies")
-      if (!response.ok) throw new Error("Failed to fetch strategies")
-      const data = await response.json()
+      const data = await fetchFromBackend("/getStrategies")
       setStrategies(data.strategies)
     } catch (error) {
       toast({
@@ -56,8 +56,8 @@ export function StrategyManager() {
       const formData = new FormData()
       formData.append("file", file)
 
-      // Use the correct API endpoint path
-      const response = await fetch("/api/strategies", {
+      const backendUrl = await getBackendUrl()
+      const response = await fetch(`${backendUrl}/createStrategy`, {
         method: "POST",
         body: formData,
       })
@@ -67,9 +67,10 @@ export function StrategyManager() {
         throw new Error(error.detail || "Failed to upload strategy")
       }
 
+      const result = await response.json()
       toast({
         title: "Success",
-        description: "Strategy uploaded successfully",
+        description: result.message || "Strategy uploaded successfully",
       })
       fetchStrategies()
 
@@ -89,7 +90,8 @@ export function StrategyManager() {
 
   const deleteStrategy = async (strategyName: string) => {
     try {
-      const response = await fetch(`/api/strategies/${strategyName}`, {
+      const backendUrl = await getBackendUrl()
+      const response = await fetch(`${backendUrl}/deleteStrategy/${strategyName}`, {
         method: "DELETE",
       })
 
@@ -110,7 +112,11 @@ export function StrategyManager() {
   }
 
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0]
+    const file = event.target.files?.[0] || null
+    processFile(file)
+  }
+
+  const processFile = (file: File | null) => {
     if (file) {
       if (!file.name.endsWith(".py")) {
         toast({
@@ -121,6 +127,26 @@ export function StrategyManager() {
         return
       }
       uploadStrategy(file)
+    }
+  }
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault()
+    setIsDragOver(true)
+  }
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault()
+    setIsDragOver(false)
+  }
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault()
+    setIsDragOver(false)
+    
+    const files = Array.from(e.dataTransfer.files)
+    if (files.length > 0) {
+      processFile(files[0])
     }
   }
 
@@ -136,7 +162,16 @@ export function StrategyManager() {
           <p className="text-sm text-muted-foreground">Upload a Python file containing your trading strategy</p>
         </div>
 
-        <div className="border-2 border-dashed border-muted-foreground/25 rounded-lg p-6 text-center hover:border-muted-foreground/50 transition-colors">
+        <div 
+          className={`border-2 border-dashed rounded-lg p-6 text-center transition-colors ${
+            isDragOver 
+              ? 'border-blue-500 bg-blue-50' 
+              : 'border-muted-foreground/25 hover:border-muted-foreground/50'
+          }`}
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+        >
           <Label htmlFor="strategy-upload" className="cursor-pointer">
             <div className="flex flex-col items-center gap-2">
               {uploading ? (
@@ -149,8 +184,13 @@ export function StrategyManager() {
                   {uploading ? "Uploading..." : "Choose Python File"}
                 </Button>
                 <p className="text-xs text-muted-foreground mt-2">
-                  Select a .py file containing your strategy function
+                  Select a .py file or drag & drop here
                 </p>
+                {isDragOver && (
+                  <p className="text-xs text-blue-600 mt-2 font-medium">
+                    Drop Python file here
+                  </p>
+                )}
               </div>
             </div>
           </Label>

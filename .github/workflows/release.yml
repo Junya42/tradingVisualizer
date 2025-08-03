@@ -1,0 +1,103 @@
+name: Release Electron App
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g., v1.0.0)'
+        required: true
+        default: 'v1.0.0'
+      prerelease:
+        description: 'Is this a prerelease?'
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  build-all-platforms:
+    runs-on: ${{ matrix.os }}
+    
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.12'
+        
+    - name: Cache Python dependencies
+      uses: actions/cache@v3
+      with:
+        path: |
+          backend/venv
+          ~/.cache/pip
+        key: ${{ runner.os }}-python-${{ hashFiles('backend/requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-python-
+          
+    - name: Install dependencies
+      run: npm ci
+      
+    - name: Install frontend dependencies
+      run: cd frontend && npm ci
+      
+    - name: Build frontend
+      run: npm run build:frontend
+      
+    - name: Build backend
+      run: npm run build:backend
+      
+    - name: Build Electron app
+      run: npx electron-builder --publish=never
+      
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: electron-app-${{ matrix.os }}
+        path: dist/
+        retention-days: 30
+        
+  create-release:
+    needs: build-all-platforms
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+      
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: ${{ github.event.inputs.version }}
+        name: Release ${{ github.event.inputs.version }}
+        body: |
+          ## Trading Backtest App ${{ github.event.inputs.version }}
+          
+          ### Downloads:
+          - **Windows**: Trading Backtest Setup ${{ github.event.inputs.version }}.exe
+          - **macOS**: Trading Backtest ${{ github.event.inputs.version }}.dmg
+          - **Linux**: Trading Backtest ${{ github.event.inputs.version }}.AppImage
+          
+          ### Installation:
+          - **Windows**: Run the .exe installer
+          - **macOS**: Open the .dmg and drag to Applications
+          - **Linux**: Make executable with `chmod +x` then run the AppImage
+        files: |
+          **/Trading Backtest*.exe
+          **/Trading Backtest*.dmg
+          **/Trading Backtest*.AppImage
+        draft: false
+        prerelease: ${{ github.event.inputs.prerelease }}
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} 

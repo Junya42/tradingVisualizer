@@ -2,5 +2,5 @@ backend/__pycache__
 backend/strategies
 backend/venv
 backend/backtest.db
-frontend/node_modules
-frontend/package-lock.json
+node_modules
+dist

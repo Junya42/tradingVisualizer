@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { useToast } from "@/hooks/use-toast"
 import { Search, TrendingUp, DollarSign, Percent, Calendar, Trash2 } from "lucide-react"
+import { fetchFromBackend, getBackendUrl } from "@/lib/backend-url"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -31,6 +32,8 @@ interface BacktestResult {
     win_rate: number
     final_balance: number
     max_drawdown: number
+    initial_amount?: number
+    final_pourcent?: number
   }
 }
 
@@ -38,7 +41,11 @@ export function BacktestResults() {
   const [searchName, setSearchName] = useState("")
   const [result, setResult] = useState<BacktestResult | null>(null)
   const [loading, setLoading] = useState(false)
-  const [backtestList, setBacktestList] = useState<string[]>([])
+  const [backtestList, setBacktestList] = useState<Array<{
+    name: string
+    final_pourcent?: number
+    initial_amount?: number
+  }>>([])
   const [loadingList, setLoadingList] = useState(false)
   const { toast } = useToast()
 
@@ -55,16 +62,7 @@ export function BacktestResults() {
 
     try {
       setLoading(true)
-      const response = await fetch(`/api/backtests/${backtestName}`)
-
-      if (!response.ok) {
-        if (response.status === 404) {
-          throw new Error("Backtest not found")
-        }
-        throw new Error("Failed to fetch backtest")
-      }
-
-      const data = await response.json()
+      const data = await fetchFromBackend(`/get/${backtestName}`)
       console.log(data);
       setResult(data)
     } catch (error) {
@@ -81,7 +79,8 @@ export function BacktestResults() {
 
   const deleteBacktest = async () => {
     try {
-      const response = await fetch(`/api/backtests/${searchName}`, {
+      const backendUrl = await getBackendUrl()
+      const response = await fetch(`${backendUrl}/delete/${searchName}`, {
         method: "DELETE",
       })
 
@@ -116,13 +115,7 @@ export function BacktestResults() {
   const fetchBacktestList = async () => {
     try {
       setLoadingList(true)
-      const response = await fetch('/api/backtests')
-      
-      if (!response.ok) {
-        throw new Error("Failed to fetch backtest list")
-      }
-      
-      const data = await response.json()
+      const data = await fetchFromBackend('/getAll')
       setBacktestList(data.backtests || [])
     } catch (error) {
       toast({
@@ -135,9 +128,9 @@ export function BacktestResults() {
     }
   }
 
-  const selectBacktest = (name: string) => {
-    setSearchName(name)
-    searchBacktest(name)
+  const selectBacktest = (backtest: { name: string; final_pourcent?: number; initial_amount?: number }) => {
+    setSearchName(backtest.name)
+    searchBacktest(backtest.name)
   }
 
   // Load backtest list on component mount
@@ -193,13 +186,22 @@ export function BacktestResults() {
               </p>
             ) : (
               <div className="space-y-1">
-                {backtestList.map((name) => (
+                {backtestList.map((backtest) => (
                   <button
-                    key={name}
-                    onClick={() => selectBacktest(name)}
+                    key={backtest.name}
+                    onClick={() => selectBacktest(backtest)}
                     className="w-full text-left px-3 py-2 text-sm hover:bg-muted rounded-md transition-colors"
                   >
-                    {name}
+                    <div className="flex items-center justify-between">
+                      <span>{backtest.name}</span>
+                      {backtest.final_pourcent !== undefined && (
+                        <span className={`text-xs font-medium ${
+                          backtest.final_pourcent < 100 ? 'text-pink-700' : 'text-emerald-500'
+                        }`}>
+                          {backtest.final_pourcent.toFixed(1)}%
+                        </span>
+                      )}
+                    </div>
                   </button>
                 ))}
               </div>
@@ -248,6 +250,11 @@ export function BacktestResults() {
                 <div className="text-2xl font-bold text-green-600">
                   {formatCurrency(result.end_result.final_balance)}
                 </div>
+                {result.end_result.initial_amount && (
+                  <div className="text-xs text-muted-foreground mt-1">
+                    Initial: {formatCurrency(result.end_result.initial_amount)}
+                  </div>
+                )}
               </CardContent>
             </Card>
 

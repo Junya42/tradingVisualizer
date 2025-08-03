@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { useToast } from "@/hooks/use-toast"
 import { Upload, Play, DollarSign, FileSpreadsheet } from "lucide-react"
+import { fetchFromBackend, getBackendUrl } from "@/lib/backend-url"
 
 export function BacktestCreator() {
   const [strategies, setStrategies] = useState<string[]>([])
@@ -18,15 +19,15 @@ export function BacktestCreator() {
     amount: "",
     strategy_name: "",
   })
-  const [csvFile, setCsvFile] = useState<File | null>(null)
+  const [csvFiles, setCsvFiles] = useState<File[]>([])
   const [loading, setLoading] = useState(false)
+  const [nextVersion, setNextVersion] = useState<number | null>(null)
+  const [isDragOver, setIsDragOver] = useState(false)
   const { toast } = useToast()
 
   const fetchStrategies = async () => {
     try {
-      const response = await fetch("/api/strategies")
-      if (!response.ok) throw new Error("Failed to fetch strategies")
-      const data = await response.json()
+      const data = await fetchFromBackend("/getStrategies")
       setStrategies(data.strategies)
     } catch (error) {
       toast({
@@ -37,13 +38,30 @@ export function BacktestCreator() {
     }
   }
 
+  const fetchNextVersion = async (strategyName: string) => {
+    try {
+      const data = await fetchFromBackend(`/getBacktestsByStrategy/${strategyName}`)
+      
+      // Find the next version number
+      const existingBacktests = data.backtests || []
+      let version = 1
+      while (existingBacktests.includes(`${strategyName}V${version}`)) {
+        version++
+      }
+      setNextVersion(version)
+    } catch (error) {
+      console.error("Error fetching next version:", error)
+      setNextVersion(1)
+    }
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
 
-    if (!formData.name || !formData.amount || !formData.strategy_name || !csvFile) {
+    if (!formData.amount || !formData.strategy_name || csvFiles.length === 0) {
       toast({
         title: "Error",
-        description: "Please fill in all fields and upload a CSV file",
+        description: "Please fill in amount, strategy, and upload at least one CSV file",
         variant: "destructive",
       })
       return
@@ -52,12 +70,17 @@ export function BacktestCreator() {
     try {
       setLoading(true)
       const submitData = new FormData()
-      submitData.append("name", formData.name)
+      if (formData.name && formData.name.trim()) {
+        submitData.append("name", formData.name)
+      }
       submitData.append("amount", formData.amount)
       submitData.append("strategy_name", formData.strategy_name)
-      submitData.append("file", csvFile)
+      csvFiles.forEach((file, index) => {
+        submitData.append("files", file)
+      })
 
-      const response = await fetch("/api/backtests", {
+      const backendUrl = await getBackendUrl()
+      const response = await fetch(`${backendUrl}/create`, {
         method: "POST",
         body: submitData,
       })
@@ -67,14 +90,15 @@ export function BacktestCreator() {
         throw new Error(error.detail || "Failed to create backtest")
       }
 
+      const result = await response.json()
       toast({
         title: "Success",
-        description: "Backtest created successfully",
+        description: result.message || "Backtest created successfully",
       })
 
       // Reset form
       setFormData({ name: "", amount: "", strategy_name: "" })
-      setCsvFile(null)
+      setCsvFiles([])
       const fileInput = document.getElementById("csv-upload") as HTMLInputElement
       if (fileInput) fileInput.value = ""
     } catch (error) {
@@ -89,18 +113,42 @@ export function BacktestCreator() {
   }
 
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0]
-    if (file) {
-      if (!file.name.endsWith(".csv")) {
-        toast({
-          title: "Error",
-          description: "Please upload a CSV file",
-          variant: "destructive",
-        })
-        return
-      }
-      setCsvFile(file)
+    const files = Array.from(event.target.files || [])
+    processFiles(files)
+  }
+
+  const processFiles = (files: File[]) => {
+    const csvFiles = files.filter(file => file.name.endsWith(".csv"))
+    
+    if (csvFiles.length !== files.length) {
+      toast({
+        title: "Warning",
+        description: "Some files were skipped. Only CSV files are supported.",
+        variant: "destructive",
+      })
     }
+    
+    if (csvFiles.length > 0) {
+      setCsvFiles(csvFiles)
+    }
+  }
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault()
+    setIsDragOver(true)
+  }
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault()
+    setIsDragOver(false)
+  }
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault()
+    setIsDragOver(false)
+    
+    const files = Array.from(e.dataTransfer.files)
+    processFiles(files)
   }
 
   useEffect(() => {
@@ -119,13 +167,18 @@ export function BacktestCreator() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="name">Backtest Name</Label>
+              <Label htmlFor="name">Backtest Name (Optional)</Label>
               <Input
                 id="name"
-                placeholder="Enter backtest name"
+                placeholder="Leave empty for auto-generated name"
                 value={formData.name}
                 onChange={(e) => setFormData({ ...formData, name: e.target.value })}
               />
+              {!formData.name && formData.strategy_name && nextVersion && (
+                <p className="text-xs text-muted-foreground">
+                  Will be named: {formData.strategy_name}V{nextVersion}
+                </p>
+              )}
             </div>
 
             <div className="space-y-2">
@@ -148,7 +201,12 @@ export function BacktestCreator() {
               <Label htmlFor="strategy">Strategy</Label>
               <Select
                 value={formData.strategy_name}
-                onValueChange={(value) => setFormData({ ...formData, strategy_name: value })}
+                onValueChange={(value) => {
+                  setFormData({ ...formData, strategy_name: value })
+                  if (value) {
+                    fetchNextVersion(value)
+                  }
+                }}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="Select a strategy" />
@@ -174,29 +232,49 @@ export function BacktestCreator() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="csv-upload">CSV Data File</Label>
+              <Label htmlFor="csv-upload">CSV Data Files</Label>
               <div className="flex items-center gap-2">
                 <Label htmlFor="csv-upload" className="cursor-pointer flex-1">
-                  <div className="border-2 border-dashed border-muted-foreground/25 rounded-lg p-6 text-center hover:border-muted-foreground/50 transition-colors">
+                  <div 
+                    className={`border-2 border-dashed rounded-lg p-6 text-center transition-colors ${
+                      isDragOver 
+                        ? 'border-blue-500 bg-blue-50' 
+                        : 'border-muted-foreground/25 hover:border-muted-foreground/50'
+                    }`}
+                    onDragOver={handleDragOver}
+                    onDragLeave={handleDragLeave}
+                    onDrop={handleDrop}
+                  >
                     <Upload className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
                     <p className="text-sm text-muted-foreground">
-                      {csvFile ? csvFile.name : "Click to upload CSV file"}
+                      {csvFiles.length > 0 ? `${csvFiles.length} file(s) selected` : "Click to upload or drag & drop CSV files"}
                     </p>
                     <p className="text-xs text-muted-foreground mt-1">
                       Required columns: Time, Open, High, Low, Close, Volume
                     </p>
+                    {isDragOver && (
+                      <p className="text-xs text-blue-600 mt-2 font-medium">
+                        Drop files here
+                      </p>
+                    )}
                   </div>
                 </Label>
-                <Input id="csv-upload" type="file" accept=".csv" onChange={handleFileUpload} className="hidden" />
+                <Input id="csv-upload" type="file" accept=".csv" multiple onChange={handleFileUpload} className="hidden" />
               </div>
             </div>
 
-            {csvFile && (
+            {csvFiles.length > 0 && (
               <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
-                <p className="text-sm text-green-800">
-                  <strong>File selected:</strong> {csvFile.name}
+                <p className="text-sm text-green-800 mb-2">
+                  <strong>Files selected ({csvFiles.length}):</strong>
                 </p>
-                <p className="text-xs text-green-600 mt-1">Size: {(csvFile.size / 1024 / 1024).toFixed(2)} MB</p>
+                <div className="space-y-1">
+                  {csvFiles.map((file, index) => (
+                    <div key={index} className="text-xs text-green-600">
+                      {file.name} ({(file.size / 1024 / 1024).toFixed(2)} MB)
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
           </CardContent>
