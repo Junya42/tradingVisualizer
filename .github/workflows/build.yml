@@ -7,6 +7,10 @@ on:
     branches: [ main, master ]
   workflow_dispatch:
 
+permissions:
+  contents: write
+  packages: write
+
 jobs:
   build:
     runs-on: ${{ matrix.os }}
@@ -66,6 +70,14 @@ jobs:
         name: electron-app-${{ matrix.os }}
         path: dist/
         retention-days: 30
+        
+    - name: Create tag
+      if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        git tag v${{ github.run_number }}
+        git push origin v${{ github.run_number }}
         
     - name: Create release
       if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
