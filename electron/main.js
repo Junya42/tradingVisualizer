@@ -1,6 +1,7 @@
 const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
 const { spawn } = require('child_process');
+const fs = require('fs');
 const isDev = process.env.NODE_ENV === 'development';
 
 let mainWindow;
@@ -26,8 +27,23 @@ function createWindow() {
     mainWindow.loadURL('http://localhost:3000');
     mainWindow.webContents.openDevTools();
   } else {
-    mainWindow.loadFile(path.join(__dirname, '..', 'frontend', 'out', 'index.html'));
+    const indexPath = path.join(__dirname, '..', 'frontend', 'out', 'index.html');
+    console.log('Loading file from:', indexPath);
+    mainWindow.loadURL(`file://${indexPath}`);
+    
+    // Only open dev tools in production if there are issues
+    // mainWindow.webContents.openDevTools();
   }
+
+  // Add error handling for failed loads
+  mainWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription, validatedURL) => {
+    console.error('Failed to load:', validatedURL, errorDescription);
+  });
+
+  // Log when page finishes loading
+  mainWindow.webContents.on('did-finish-load', () => {
+    console.log('Page finished loading');
+  });
 
   mainWindow.once('ready-to-show', () => {
     mainWindow.show();
@@ -43,11 +59,30 @@ function startBackend() {
     ? path.join(__dirname, '..', 'backend', 'server.py')
     : path.join(process.resourcesPath, 'backend', 'server.py');
   
-  const pythonPath = isDev ? 'python' : path.join(process.resourcesPath, 'python', 'python.exe');
+  let pythonPath = isDev 
+    ? path.join(__dirname, '..', 'backend', 'venv', 'bin', 'python')
+    : path.join(process.resourcesPath, 'backend', 'venv', 'bin', 'python');
+  
+  // For Windows in production
+  if (!isDev && process.platform === 'win32') {
+    pythonPath = path.join(process.resourcesPath, 'backend', 'venv', 'Scripts', 'python.exe');
+  }
+  
+  console.log('Starting backend with:', pythonPath, backendPath);
+  
+  // Set working directory to backend folder
+  const workingDir = isDev 
+    ? path.join(__dirname, '..', 'backend')
+    : path.join(process.resourcesPath, 'backend');
   
   backendProcess = spawn(pythonPath, [backendPath], {
     stdio: 'pipe',
-    env: { ...process.env, PYTHONPATH: path.dirname(backendPath) }
+    cwd: workingDir,
+    env: { 
+      ...process.env, 
+      PYTHONPATH: workingDir,
+      PYTHONUNBUFFERED: '1'
+    }
   });
 
   backendProcess.stdout.on('data', (data) => {
@@ -60,10 +95,25 @@ function startBackend() {
 
   backendProcess.on('close', (code) => {
     console.log('Backend process exited with code:', code);
+    if (code !== 0 && code !== null) {
+      console.error('Backend exited with non-zero code, attempting restart...');
+      setTimeout(() => {
+        if (!backendProcess || backendProcess.killed) {
+          startBackend();
+        }
+      }, 3000);
+    }
   });
 
   backendProcess.on('error', (err) => {
     console.error('Backend process error:', err);
+    // Try to restart backend after a delay
+    setTimeout(() => {
+      console.log('Attempting to restart backend after error...');
+      if (!backendProcess || backendProcess.killed) {
+        startBackend();
+      }
+    }, 3000);
   });
 }
 
@@ -107,7 +157,7 @@ app.on('quit', () => {
 
 // IPC handlers for communication between renderer and main process
 ipcMain.handle('get-backend-url', () => {
-  return isDev ? 'http://localhost:8000' : 'http://localhost:8000';
+  return 'http://localhost:8000';
 });
 
 ipcMain.handle('get-app-version', () => {

@@ -10,7 +10,12 @@ process.chdir(backendDir);
 
 console.log('Creating virtual environment...');
 try {
-  execSync('python -m venv venv', { stdio: 'inherit' });
+  // Try python3 first, then python as fallback
+  try {
+    execSync('python3 -m venv venv', { stdio: 'inherit' });
+  } catch (e) {
+    execSync('python -m venv venv', { stdio: 'inherit' });
+  }
 } catch (error) {
   console.error('Failed to create virtual environment:', error.message);
   process.exit(1);

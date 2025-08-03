@@ -194,7 +194,7 @@ export function BacktestResults() {
                   >
                     <div className="flex items-center justify-between">
                       <span>{backtest.name}</span>
-                      {backtest.final_pourcent !== undefined && (
+                      {backtest.final_pourcent != null && (
                         <span className={`text-xs font-medium ${
                           backtest.final_pourcent < 100 ? 'text-pink-700' : 'text-emerald-500'
                         }`}>

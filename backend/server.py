@@ -1,4 +1,5 @@
 from fastapi import FastAPI, UploadFile, File, HTTPException, Form
+from fastapi.middleware.cors import CORSMiddleware
 from typing import List
 import sqlite3
 import json
@@ -8,6 +9,15 @@ import os
 import importlib.util
 
 app = FastAPI()
+
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # In production, you might want to restrict this
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 DB = "backtest.db"
 STRATEGIES_DIR = "strategies"
@@ -122,7 +132,7 @@ async def create(
                             io.BytesIO(contents),
                             header=None,
                             names=['Time', 'Open', 'High', 'Low', 'Close', 'Volume'],
-                            sep='\s+'
+                            sep=r'\s+'
                         )
                         print(f"Success with space separator! Shape: {df.shape}")
                     except Exception as e:
@@ -227,3 +237,7 @@ def delete(name: str):
     if affected == 0:
         raise HTTPException(404, "Not found")
     return {"message": "Deleted successfully"}
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)

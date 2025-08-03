@@ -14,10 +14,12 @@
     "build:frontend": "cd frontend && npm run build",
     "build:backend": "node scripts/build-backend.js",
     "build:backend:win": "scripts\\build-backend.bat",
+    "build:backend:local": "cd backend && python3 -m venv venv && ./venv/bin/pip install --upgrade pip setuptools wheel && ./venv/bin/pip install -r requirements.txt",
     "build:static": "cd frontend && npm run build",
     "clean:venv": "cd backend && rm -rf venv",
     "package": "npm run build && npx electron-builder",
     "dist": "npm run build && npx electron-builder --publish=never",
+    "local:dist": "npm run build:frontend && npm run build:backend:local && npx electron-builder --publish=never",
     "start": "electron ."
   },
   "devDependencies": {

@@ -2,6 +2,8 @@
 const nextConfig = {
   output: 'export',
   trailingSlash: true,
+  distDir: 'out',
+  assetPrefix: process.env.NODE_ENV === 'production' ? './' : '',
   images: {
     unoptimized: true
   },
@@ -11,7 +13,14 @@ const nextConfig = {
     }
   },
   skipTrailingSlashRedirect: true,
-  skipMiddlewareUrlNormalize: true
+  skipMiddlewareUrlNormalize: true,
+  // Ensure proper handling of static assets for Electron
+  webpack: (config, { isServer }) => {
+    if (!isServer) {
+      config.target = 'electron-renderer';
+    }
+    return config;
+  }
 }
 
-module.exports = nextConfig 
+module.exports = nextConfig

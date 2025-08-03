@@ -144,9 +144,13 @@ export function StrategyManager() {
     e.preventDefault()
     setIsDragOver(false)
     
-    const files = Array.from(e.dataTransfer.files)
-    if (files.length > 0) {
-      processFile(files[0])
+    try {
+      const files = Array.from(e.dataTransfer.files)
+      if (files.length > 0) {
+        processFile(files[0])
+      }
+    } catch (error) {
+      console.error('Error handling file drop:', error)
     }
   }
 

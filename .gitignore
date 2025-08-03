@@ -4,3 +4,5 @@ backend/venv
 backend/backtest.db
 node_modules
 dist
+backtest.db
+squashfs-root
