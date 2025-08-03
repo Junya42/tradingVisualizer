@@ -4,26 +4,40 @@ const fs = require('fs');
 
 const isWindows = process.platform === 'win32';
 const backendDir = path.join(__dirname, '..', 'backend');
-const venvDir = path.join(backendDir, 'venv');
 
 // Change to backend directory
 process.chdir(backendDir);
 
 console.log('Creating virtual environment...');
-execSync('python -m venv venv', { stdio: 'inherit' });
+try {
+  execSync('python -m venv venv', { stdio: 'inherit' });
+} catch (error) {
+  console.error('Failed to create virtual environment:', error.message);
+  process.exit(1);
+}
 
-// Determine the correct pip path
-let pipPath;
+// Determine the correct python path for the virtual environment
+let pythonPath;
 if (isWindows) {
-  pipPath = path.join(venvDir, 'Scripts', 'pip.exe');
+  pythonPath = path.join(backendDir, 'venv', 'Scripts', 'python.exe');
 } else {
-  pipPath = path.join(venvDir, 'bin', 'pip');
+  pythonPath = path.join(backendDir, 'venv', 'bin', 'python');
 }
 
 console.log('Upgrading pip, setuptools, and wheel...');
-execSync(`"${pipPath}" install --upgrade pip setuptools wheel`, { stdio: 'inherit' });
+try {
+  execSync(`"${pythonPath}" -m pip install --upgrade pip setuptools wheel`, { stdio: 'inherit' });
+} catch (error) {
+  console.error('Failed to upgrade pip:', error.message);
+  process.exit(1);
+}
 
 console.log('Installing requirements...');
-execSync(`"${pipPath}" install -r requirements.txt`, { stdio: 'inherit' });
+try {
+  execSync(`"${pythonPath}" -m pip install -r requirements.txt`, { stdio: 'inherit' });
+} catch (error) {
+  console.error('Failed to install requirements:', error.message);
+  process.exit(1);
+}
 
 console.log('Backend build completed successfully!'); 
