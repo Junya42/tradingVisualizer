@@ -49,13 +49,13 @@ jobs:
     - name: Build frontend
       run: npm run build:frontend
       
-    - name: Build backend
-      run: |
-        if [ "$RUNNER_OS" = "Windows" ]; then
-          npm run build:backend:win
-        else
-          npm run build:backend
-        fi
+    - name: Build backend (Windows)
+      if: runner.os == 'Windows'
+      run: npm run build:backend:win
+      
+    - name: Build backend (Unix)
+      if: runner.os != 'Windows'
+      run: npm run build:backend
       
     - name: Build Electron app
       run: npx electron-builder --publish=never
